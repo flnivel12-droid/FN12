@@ -7,8 +7,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholde
 // Cliente Supabase com configuração otimizada para build e confirmação de email
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: false, // Evita problemas de sessão durante build
-    autoRefreshToken: false, // Desabilita refresh automático durante build
+    persistSession: typeof window !== 'undefined', // Apenas no cliente
+    autoRefreshToken: typeof window !== 'undefined', // Apenas no cliente
     // URL de redirecionamento para confirmação de email
     redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined
   }

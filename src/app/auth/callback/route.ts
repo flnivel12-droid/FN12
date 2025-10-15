@@ -2,27 +2,27 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
-  const error = requestUrl.searchParams.get('error')
-  const errorDescription = requestUrl.searchParams.get('error_description')
-
-  // Se houver erro na confirmação
-  if (error) {
-    console.error('Erro na confirmação de email:', error, errorDescription)
-    return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent('Erro ao confirmar email. Tente novamente.')}`, request.url)
-    )
-  }
-
-  // Se não houver código, redirecionar com erro
-  if (!code) {
-    return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent('Link de confirmação inválido.')}`, request.url)
-    )
-  }
-
   try {
+    const requestUrl = new URL(request.url)
+    const code = requestUrl.searchParams.get('code')
+    const error = requestUrl.searchParams.get('error')
+    const errorDescription = requestUrl.searchParams.get('error_description')
+
+    // Se houver erro na confirmação
+    if (error) {
+      console.error('Erro na confirmação de email:', error, errorDescription)
+      return NextResponse.redirect(
+        new URL(`/?error=${encodeURIComponent('Erro ao confirmar email. Tente novamente.')}`, request.url)
+      )
+    }
+
+    // Se não houver código, redirecionar com erro
+    if (!code) {
+      return NextResponse.redirect(
+        new URL(`/?error=${encodeURIComponent('Link de confirmação inválido.')}`, request.url)
+      )
+    }
+
     // Configurar cliente Supabase para server-side
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -62,17 +62,20 @@ export async function GET(request: NextRequest) {
 
       // Se o perfil não existir, criar um
       if (profileError || !profile) {
+        const trialEndDate = new Date()
+        trialEndDate.setDate(trialEndDate.getDate() + 7)
+        
         await supabase
           .from('user_profiles')
           .insert({
             id: data.user.id,
             name: data.user.user_metadata?.name || 'Usuário',
-            email: data.user.email!,
+            email: data.user.email || '',
             monthly_living_cost: 0,
             financial_reserve: 0,
             monthly_spending_limit: 0,
             subscription_status: 'trial',
-            trial_end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            trial_end_date: trialEndDate.toISOString()
           })
       }
     } catch (profileError) {
