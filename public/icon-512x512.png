@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="85" fill="#000000"/>
+  <circle cx="256" cy="256" r="170" fill="#F59E0B"/>
+  <path d="M256 128L298 213H214L256 128Z" fill="#000000"/>
+  <path d="M256 384L214 299H298L256 384Z" fill="#000000"/>
+  <circle cx="256" cy="256" r="42" fill="#000000"/>
+  <text x="256" y="426" text-anchor="middle" fill="#F59E0B" font-family="Arial, sans-serif" font-size="42" font-weight="bold">FN12</text>
+</svg>
