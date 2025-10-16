@@ -36,8 +36,13 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Trocar o código por uma sessão
-    const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+    // Trocar o código por uma sessão com timeout
+    const { data, error: exchangeError } = await Promise.race([
+      supabase.auth.exchangeCodeForSession(code),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 8000)
+      )
+    ]) as any
 
     if (exchangeError) {
       console.error('Erro ao trocar código por sessão:', exchangeError)
@@ -46,37 +51,49 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (!data.user) {
+    if (!data?.user) {
       return NextResponse.redirect(
         new URL(`/?error=${encodeURIComponent('Usuário não encontrado.')}`, request.url)
       )
     }
 
-    // Verificar se o perfil do usuário existe na tabela personalizada
+    // Verificar se o perfil do usuário existe na tabela personalizada com timeout
     try {
-      const { data: profile, error: profileError } = await supabase
+      const profilePromise = supabase
         .from('user_profiles')
         .select('*')
         .eq('id', data.user.id)
         .single()
+
+      const { data: profile, error: profileError } = await Promise.race([
+        profilePromise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Profile timeout')), 3000)
+        )
+      ]) as any
 
       // Se o perfil não existir, criar um
       if (profileError || !profile) {
         const trialEndDate = new Date()
         trialEndDate.setDate(trialEndDate.getDate() + 7)
         
-        await supabase
-          .from('user_profiles')
-          .insert({
-            id: data.user.id,
-            name: data.user.user_metadata?.name || 'Usuário',
-            email: data.user.email || '',
-            monthly_living_cost: 0,
-            financial_reserve: 0,
-            monthly_spending_limit: 0,
-            subscription_status: 'trial',
-            trial_end_date: trialEndDate.toISOString()
-          })
+        await Promise.race([
+          supabase
+            .from('user_profiles')
+            .insert({
+              id: data.user.id,
+              name: data.user.user_metadata?.name || 'Usuário',
+              email: data.user.email || '',
+              monthly_living_cost: 0,
+              financial_reserve: 0,
+              monthly_spending_limit: 0,
+              subscription_status: 'trial',
+              trial_end_date: trialEndDate.toISOString()
+            }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Insert timeout')), 3000)
+          )
+        ])
       }
     } catch (profileError) {
       console.error('Erro ao verificar/criar perfil:', profileError)

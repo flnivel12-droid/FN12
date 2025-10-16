@@ -32,19 +32,21 @@ const nextConfig: NextConfig = {
     formats: ['image/webp', 'image/avif'],
   },
   
-  // Remover output standalone para Vercel
+  // Configurações para evitar timeout
   poweredByHeader: false,
   
-  // Configuração de webpack para melhor compatibilidade
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        net: false,
-        tls: false,
-      };
-    }
+  // Otimizações de build para reduzir tempo
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
+  },
+  
+  // Configuração de webpack simplificada
+  webpack: (config) => {
+    config.resolve.fallback = {
+      fs: false,
+      net: false,
+      tls: false,
+    };
     return config;
   },
 };

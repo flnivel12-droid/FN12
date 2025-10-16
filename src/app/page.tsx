@@ -15,7 +15,7 @@ import {
   CheckCircle,
   X,
 } from 'lucide-react';
-import { registerUser, loginUser, resendConfirmationEmail, logoutUser, UserProfile } from '@/lib/auth';
+import { supabase, isSupabaseConfigured, DatabaseUser } from '@/lib/supabase';
 
 // Tipos básicos
 interface Transaction {
@@ -105,111 +105,7 @@ const Notification = ({
   );
 };
 
-// Componente de Confirmação de Email
-const EmailConfirmationScreen = ({ 
-  email, 
-  onBackToLogin, 
-  onResendEmail 
-}: { 
-  email: string; 
-  onBackToLogin: () => void;
-  onResendEmail: (email: string) => void;
-}) => {
-  const [isResending, setIsResending] = useState(false);
-  const [resendMessage, setResendMessage] = useState('');
-
-  const handleResend = async () => {
-    setIsResending(true);
-    setResendMessage('');
-    
-    try {
-      await onResendEmail(email);
-      setResendMessage('Email de confirmação reenviado! Verifique sua caixa de entrada.');
-    } catch (error) {
-      setResendMessage('Erro ao reenviar email. Tente novamente.');
-    } finally {
-      setIsResending(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-black/20 backdrop-blur-sm rounded-3xl p-8 border border-yellow-500/20">
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 mx-auto mb-4 bg-yellow-400 rounded-full flex items-center justify-center">
-            <Mail className="w-10 h-10 text-black" />
-          </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Confirme seu Email</h1>
-          <p className="text-gray-300">Enviamos um link de confirmação para:</p>
-          <p className="text-yellow-400 font-medium mt-2">{email}</p>
-        </div>
-
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6">
-          <div className="flex items-start">
-            <CheckCircle className="w-5 h-5 text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
-            <div className="text-sm text-blue-300">
-              <p className="font-medium mb-1">Próximos passos:</p>
-              <ol className="list-decimal list-inside space-y-1 text-blue-200">
-                <li>Verifique sua caixa de entrada</li>
-                <li>Clique no link de confirmação</li>
-                <li>Volte aqui e faça login</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-
-        {resendMessage && (
-          <div className={`mb-6 p-4 rounded-xl ${
-            resendMessage.includes('Erro') 
-              ? 'bg-red-500/10 border border-red-500/20' 
-              : 'bg-green-500/10 border border-green-500/20'
-          }`}>
-            <p className={`text-sm ${
-              resendMessage.includes('Erro') ? 'text-red-400' : 'text-green-400'
-            }`}>
-              {resendMessage}
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          <button
-            onClick={handleResend}
-            disabled={isResending}
-            className="w-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 font-medium py-3 px-6 rounded-xl hover:bg-yellow-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            {isResending ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Reenviando...
-              </>
-            ) : (
-              <>
-                <Mail className="w-5 h-5 mr-2" />
-                Reenviar Email
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={onBackToLogin}
-            className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-300 font-medium py-3 px-6 rounded-xl hover:bg-gray-500/30 transition-all duration-300"
-          >
-            Voltar ao Login
-          </button>
-        </div>
-
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-500">
-            Não recebeu o email? Verifique sua pasta de spam ou lixo eletrônico.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Componente de Login (SEM usuário teste)
+// Componente de Login com Supabase
 const LoginScreen = ({ 
   onLogin, 
   onSwitchToRegister,
@@ -232,22 +128,105 @@ const LoginScreen = ({
     setError('');
 
     try {
-      const result = await loginUser({ email, password });
-      
-      if (result.success && result.user) {
+      if (!isSupabaseConfigured()) {
+        // Fallback para demonstração quando Supabase não está configurado
+        setTimeout(() => {
+          if (email && password) {
+            onLogin({
+              id: '1',
+              email: email,
+              name: 'Usuário Demo',
+              hasPaymentMethod: false,
+              subscriptionStatus: 'trial',
+              trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            });
+          } else {
+            setError('Preencha todos os campos');
+          }
+          setLoading(false);
+        }, 1000);
+        return;
+      }
+
+      // Login real com Supabase
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
+          setError('Email ou senha incorretos. Verifique suas credenciais.');
+        } else if (authError.message.includes('Email not confirmed')) {
+          setError('Por favor, confirme seu email antes de fazer login.');
+        } else {
+          setError('Erro ao fazer login: ' + authError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!authData.user) {
+        setError('Erro inesperado no login');
+        setLoading(false);
+        return;
+      }
+
+      // Buscar dados do usuário na tabela users
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (userError) {
+        console.error('Erro ao buscar dados do usuário:', userError);
+        // Se não encontrar na tabela users, criar um registro básico
+        const { data: newUser, error: createError } = await supabase
+          .from('users')
+          .insert({
+            id: authData.user.id,
+            email: authData.user.email || email,
+            name: authData.user.user_metadata?.name || 'Usuário',
+            monthly_living_cost: 3000,
+            financial_reserve: 0,
+            monthly_spending_limit: 2500,
+            subscription_status: 'trial',
+            trial_end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          setError('Erro ao criar perfil do usuário: ' + createError.message);
+          setLoading(false);
+          return;
+        }
+
+        // Usar dados do novo usuário criado
         onLogin({
-          id: result.user.id,
-          email: result.user.email,
-          name: result.user.name,
+          id: authData.user.id,
+          email: authData.user.email || email,
+          name: newUser?.name || 'Usuário',
           hasPaymentMethod: false,
-          subscriptionStatus: result.user.subscriptionStatus,
-          trialEndDate: result.user.trialEndDate,
+          subscriptionStatus: 'trial',
+          trialEndDate: newUser?.trial_end_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         });
       } else {
-        setError(result.error || 'Erro ao fazer login');
+        // Usar dados existentes do usuário
+        onLogin({
+          id: authData.user.id,
+          email: authData.user.email || email,
+          name: userData.name,
+          hasPaymentMethod: false,
+          subscriptionStatus: userData.subscription_status,
+          trialEndDate: userData.trial_end_date,
+        });
       }
+
     } catch (err) {
-      setError('Erro de conexão. Tente novamente.');
+      console.error('Erro no login:', err);
+      setError('Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -338,25 +317,25 @@ const LoginScreen = ({
           </p>
         </div>
 
-        <div className="mt-4 text-center">
-          <p className="text-xs text-gray-500">
-            ⚠️ Apenas usuários cadastrados podem fazer login
-          </p>
-        </div>
+        {!isSupabaseConfigured() && (
+          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+            <p className="text-xs text-blue-300 text-center">
+              💡 Demo: Use qualquer email e senha para testar
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// Componente de Registro com Confirmação de Email
+// Componente de Registro com Supabase
 const RegisterScreen = ({ 
   onRegister, 
-  onSwitchToLogin, 
-  onEmailConfirmation 
+  onSwitchToLogin 
 }: { 
   onRegister: (user: AuthUser) => void; 
   onSwitchToLogin: () => void;
-  onEmailConfirmation: (email: string) => void;
 }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -376,28 +355,92 @@ const RegisterScreen = ({
     }
 
     try {
-      const result = await registerUser({ name, email, password });
-      
-      if (result.success) {
-        if (result.needsEmailConfirmation) {
-          // Redirecionar para tela de confirmação de email
-          onEmailConfirmation(email);
-        } else if (result.user) {
-          // Login automático se não precisar de confirmação
-          onRegister({
-            id: result.user.id,
-            email: result.user.email,
-            name: result.user.name,
-            hasPaymentMethod: false,
-            subscriptionStatus: result.user.subscriptionStatus,
-            trialEndDate: result.user.trialEndDate,
-          });
-        }
-      } else {
-        setError(result.error || 'Erro ao criar conta');
+      if (!isSupabaseConfigured()) {
+        // Fallback para demonstração quando Supabase não está configurado
+        setTimeout(() => {
+          if (name && email && password) {
+            onRegister({
+              id: '1',
+              email: email,
+              name: name,
+              hasPaymentMethod: false,
+              subscriptionStatus: 'trial',
+              trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            });
+          } else {
+            setError('Preencha todos os campos');
+          }
+          setLoading(false);
+        }, 1000);
+        return;
       }
+
+      // Registro real com Supabase
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name,
+          }
+        }
+      });
+
+      if (authError) {
+        if (authError.message.includes('User already registered')) {
+          setError('Este email já está cadastrado. Tente fazer login.');
+        } else {
+          setError('Erro ao criar conta: ' + authError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!authData.user) {
+        setError('Erro inesperado no cadastro');
+        setLoading(false);
+        return;
+      }
+
+      // Criar registro na tabela users
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: email,
+          name: name,
+          monthly_living_cost: 3000,
+          financial_reserve: 0,
+          monthly_spending_limit: 2500,
+          subscription_status: 'trial',
+          trial_end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+
+      if (userError) {
+        console.error('Erro ao criar perfil do usuário:', userError);
+        // Mesmo com erro na tabela users, continua com o registro
+      }
+
+      // Se o usuário foi criado mas precisa confirmar email
+      if (!authData.session) {
+        setError('Conta criada! Verifique seu email para confirmar o cadastro antes de fazer login.');
+        setLoading(false);
+        return;
+      }
+
+      // Login automático após registro bem-sucedido
+      onRegister({
+        id: authData.user.id,
+        email: email,
+        name: name,
+        hasPaymentMethod: false,
+        subscriptionStatus: 'trial',
+        trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+
     } catch (err) {
-      setError('Erro de conexão. Tente novamente.');
+      console.error('Erro no registro:', err);
+      setError('Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -494,11 +537,13 @@ const RegisterScreen = ({
           </p>
         </div>
 
-        <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-          <p className="text-xs text-blue-300 text-center">
-            📧 Após o cadastro, você receberá um email de confirmação
-          </p>
-        </div>
+        {!isSupabaseConfigured() && (
+          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+            <p className="text-xs text-blue-300 text-center">
+              💡 Demo: Funciona offline para demonstração
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -572,43 +617,13 @@ const Dashboard = ({ user, transactions }: { user: User; transactions: Transacti
 
       <div className="bg-white rounded-2xl p-6 border border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Transações Recentes</h3>
-        {transactions.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">Nenhuma transação encontrada</p>
-        ) : (
-          <div className="space-y-3">
-            {transactions.slice(0, 5).map((transaction) => (
-              <div key={transaction.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div className="flex items-center">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    transaction.type === 'income' ? 'bg-green-100' : 
-                    transaction.type === 'expense' ? 'bg-red-100' : 'bg-blue-100'
-                  }`}>
-                    {transaction.type === 'income' ? (
-                      <TrendingUp className={`w-5 h-5 ${
-                        transaction.type === 'income' ? 'text-green-600' : 
-                        transaction.type === 'expense' ? 'text-red-600' : 'text-blue-600'
-                      }`} />
-                    ) : transaction.type === 'expense' ? (
-                      <TrendingDown className="w-5 h-5 text-red-600" />
-                    ) : (
-                      <PieChart className="w-5 h-5 text-blue-600" />
-                    )}
-                  </div>
-                  <div className="ml-3">
-                    <p className="font-medium text-gray-900">{transaction.category}</p>
-                    <p className="text-sm text-gray-500">{new Date(transaction.date).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <p className={`font-semibold ${
-                  transaction.type === 'income' ? 'text-green-600' : 
-                  transaction.type === 'expense' ? 'text-red-600' : 'text-blue-600'
-                }`}>
-                  {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                </p>
-              </div>
-            ))}
+        <div className="text-center py-8">
+          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+            <PieChart className="w-8 h-8 text-gray-400" />
           </div>
-        )}
+          <p className="text-gray-500 mb-2">Nenhuma transação encontrada</p>
+          <p className="text-sm text-gray-400">Adicione suas primeiras transações para começar</p>
+        </div>
       </div>
     </div>
   );
@@ -616,16 +631,15 @@ const Dashboard = ({ user, transactions }: { user: User; transactions: Transacti
 
 // Componente Principal
 export default function FortalezaNivel12() {
-  const [authState, setAuthState] = useState<'login' | 'register' | 'email-confirmation' | 'app'>('login');
+  const [authState, setAuthState] = useState<'login' | 'register' | 'app'>('login');
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [pendingEmail, setPendingEmail] = useState('');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [transactions] = useState<Transaction[]>([]);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [user, setUser] = useState<User>({
     id: '1',
     email: 'user@example.com',
-    name: 'Usuário',
+    name: 'Usuário Demo',
     monthlyLivingCost: 3000,
     financialReserve: 15000,
     monthlySpendingLimit: 2500,
@@ -633,23 +647,54 @@ export default function FortalezaNivel12() {
     trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   });
 
-  // Verificar parâmetros da URL para mensagens de confirmação
+  // Verificar sessão existente ao carregar
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const confirmed = urlParams.get('confirmed');
-      const message = urlParams.get('message');
-      const error = urlParams.get('error');
+    if (isSupabaseConfigured()) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          // Buscar dados do usuário
+          supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+            .then(({ data: userData }) => {
+              if (userData) {
+                const authUser: AuthUser = {
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  name: userData.name,
+                  hasPaymentMethod: false,
+                  subscriptionStatus: userData.subscription_status,
+                  trialEndDate: userData.trial_end_date,
+                };
+                
+                setAuthUser(authUser);
+                setUser({
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  name: userData.name,
+                  monthlyLivingCost: userData.monthly_living_cost,
+                  financialReserve: userData.financial_reserve,
+                  monthlySpendingLimit: userData.monthly_spending_limit,
+                  subscriptionStatus: userData.subscription_status,
+                  trialEndDate: userData.trial_end_date,
+                });
+                setAuthState('app');
+              }
+            });
+        }
+      });
 
-      if (confirmed === 'true' && message) {
-        setNotification({ type: 'success', message: decodeURIComponent(message) });
-        // Limpar parâmetros da URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else if (error) {
-        setNotification({ type: 'error', message: decodeURIComponent(error) });
-        // Limpar parâmetros da URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+      // Escutar mudanças na autenticação
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT') {
+          setAuthState('login');
+          setAuthUser(null);
+        }
+      });
+
+      return () => subscription.unsubscribe();
     }
   }, []);
 
@@ -679,20 +724,12 @@ export default function FortalezaNivel12() {
     setAuthState('app');
   };
 
-  const handleEmailConfirmation = (email: string) => {
-    setPendingEmail(email);
-    setAuthState('email-confirmation');
-  };
-
-  const handleResendEmail = async (email: string) => {
-    await resendConfirmationEmail(email);
-  };
-
   const handleLogout = async () => {
-    await logoutUser();
+    if (isSupabaseConfigured()) {
+      await supabase.auth.signOut();
+    }
     setAuthState('login');
     setAuthUser(null);
-    setPendingEmail('');
   };
 
   const handleCloseNotification = () => {
@@ -716,17 +753,6 @@ export default function FortalezaNivel12() {
       <RegisterScreen 
         onRegister={handleRegister}
         onSwitchToLogin={() => setAuthState('login')}
-        onEmailConfirmation={handleEmailConfirmation}
-      />
-    );
-  }
-
-  if (authState === 'email-confirmation') {
-    return (
-      <EmailConfirmationScreen
-        email={pendingEmail}
-        onBackToLogin={() => setAuthState('login')}
-        onResendEmail={handleResendEmail}
       />
     );
   }
